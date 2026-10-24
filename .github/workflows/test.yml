@@ -1,0 +1,63 @@
+name: CI Pipeline
+on: [push, pull_request]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: [stable, oldstable]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: ${{ hashFiles('go.mod') != '' && 'true' || 'false' }}
+
+      - name: Install dependencies
+        if: hashFiles('go.mod') != ''
+        run: go mod download
+
+      - name: Lint and format check
+        if: hashFiles('go.mod') != ''
+        run: |
+          gofmt -l .
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "::error::Go files are not formatted. Run gofmt -w ."
+            exit 1
+          fi
+          go vet ./...
+
+      - name: Build
+        if: hashFiles('go.mod') != ''
+        run: go build ./...
+
+      - name: Run tests
+        if: hashFiles('go.mod') != ''
+        run: go test ./... -race -coverprofile=coverage.out
+
+      - name: Pipeline summary
+        if: always()
+        run: |
+          echo "## CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Outcome |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Checkout | ${{ steps.checkout.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Set up Go | ${{ steps.setup.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Install dependencies | ${{ steps.install.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Lint and format check | ${{ steps.lint.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build | ${{ steps.build.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Run tests | ${{ steps.test.outcome }} |" >> $GITHUB_STEP_SUMMARY
